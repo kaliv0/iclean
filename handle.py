@@ -28,22 +28,21 @@ class Cleaner:
             if line.startswith(("#", "\n")):
                 continue
             # handle aliases
-            if (idx := line.find("as")) >= 0:
-                self.handle_aliases(line, idx)
+            if len(imp := line.split("as")) > 1:
+                self.handle_aliases(imp[1].rstrip("\n"))
             # handle regular imports (multiple, separated by comma on same line)
-            elif (idx := line.find("import")) >= 0:
-                self.handle_imports(line, idx)
+            elif len(imp := line.split("import")) > 1:
+                self.handle_imports(imp[1].rstrip("\n"))
             else:
                 break
 
-    def handle_aliases(self, line, idx):
-        imp = line[idx + len("as") + 1 :].rstrip("\n")
-        self.imp_map[imp] = ImportData(self.line_num, 0, False)
+    def handle_aliases(self, imp):
+        self.imp_map[imp.strip()] = ImportData(self.line_num, 0, False)
 
-    def handle_imports(self, line, idx):
-        if line[idx + len("import") + 1] == "*":
+    def handle_imports(self, imp):
+        if "*" in imp:
             raise ValueError("Bad practice using import *")
-        imp_list = line[idx + len("import") + 1 :].rstrip("\n").split(",")
+        imp_list = imp.split(",")
         for imp in imp_list:
             is_mult = len(imp_list) > 1
             self.imp_map[imp.strip()] = ImportData(self.line_num, 0, is_mult)
@@ -68,17 +67,20 @@ class Cleaner:
         f.write("\n\n")
 
     def write_import_line(self, f, imp_list, line):
-        if imp_list:
-            f.write(line[: line.find("import") + len("import") + 1] + ", ".join(imp_list) + "\n")
-        elif not (
-            # skip commented out imports -> TODO: pass as flag by user
-            (line.startswith("#") and self.skip_commented)
-            # avoid writing unused multiple imports on same line
-            or ("," in line)
-            # avoid writing empty lines in import block
-            or (line == "\n")
-        ):
+        if imp_list or self.should_write_import_line(line):
+            if "as" not in line:
+                line = self.prepare_import_line(imp_list, line)
             f.write(line)
+
+    def prepare_import_line(self, imp_list, line):
+        return line[: line.find("import") + len("import") + 1] + ", ".join(imp_list) + "\n"
+
+    def should_write_import_line(self, line):
+        # TODO: pass as flag by user
+        skip_commented_imports = line.startswith("#") and self.skip_commented
+        skip_unused_multi_imports = "," in line
+        skip_blanks = line == "\n"
+        return not (skip_commented_imports or skip_unused_multi_imports or skip_blanks)
 
     def build_multiple_import_list(self, i):
         imp_list = []
