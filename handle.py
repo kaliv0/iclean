@@ -41,7 +41,6 @@ class Cleaner:
             self.imp_map[imp.strip()] = [self.line_num, 0, is_mult]
 
     def read_rest_of_file(self):
-        # read rest of file and track import usage
         for line in self.lines[self.line_num :]:
             if line.strip().startswith("#"):
                 continue
@@ -49,12 +48,11 @@ class Cleaner:
                 # TODO: fix regex -> skips if similar substring is contained
                 pattern = f" {imp}[.(]"
                 if re.search(pattern, line):
+                    # track import usage
                     self.imp_map[imp][1] += 1
         print(self.imp_map)
 
     def write_imports(self, f):
-        # TODO: skip if initial lines are empty
-        # write imports
         prev_line = None
         for i, line in enumerate(self.lines[: self.line_num], 0):
             skip = False
@@ -63,13 +61,11 @@ class Cleaner:
                 ln = val[0]
                 cnt = val[1]
                 fl = val[2]  # flag if multiple imports on same line
-                if not fl:
-                    if ln == i and cnt == 0:
-                        skip = True
-                        break
-                else:
-                    if ln == i and cnt > 0:
-                        imp_list.append(imp)
+                if ln == i and cnt == 0 and fl == 0:
+                    skip = True
+                    break
+                elif ln == i and cnt > 0:
+                    imp_list.append(imp)
 
             if not skip:
                 if imp_list:
@@ -85,12 +81,10 @@ class Cleaner:
                 prev_line = line
 
     def write_rest_of_file(self, f):
-        # write rest of file
         for line in self.lines[self.line_num :]:
             f.write(line)
 
     def write_to_temp_file(self):
-        # write content to temp_file skipping unused imports
         with open(self.temp_file, "w") as f:
             self.write_imports(f)
             self.write_rest_of_file(f)
