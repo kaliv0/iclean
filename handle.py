@@ -5,10 +5,12 @@ import re
 from dataclasses import dataclass
 
 
+LOG_FORMAT = "%(levelname)s: %(message)s"
 IMPORT_PATTERN = " {imp}[.(]"
 IMPORT_KEYWORD_LEN = len("import") + 1
 BAD_PRACTICE_ERROR = "Bad practice using import *"
-CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports"
+CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports:"
+CLEANUP_SUCCESSFUL = "{file} cleaned up successfully"
 TEMP_TEMPLATE = "{file}.swap"
 
 
@@ -23,12 +25,19 @@ class Cleaner:
     def __init__(self, file, skip_commented):
         self.file = file
         self.temp_file = TEMP_TEMPLATE.format(file=file)
+        self.logger = self.setup_logger()
         # load file in memory
         with open(file, "r") as f:
             self.lines = f.readlines()
         self.skip_commented = skip_commented
         self.imp_map = {}
         self.line_num = -1
+
+    @staticmethod
+    def setup_logger():
+        logger = logging.getLogger(__name__)
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+        return logger
 
     def read_imports(self):
         for line in self.lines:
@@ -38,17 +47,18 @@ class Cleaner:
                 continue
 
             if len(imp := line.split("as")) > 1:
-                self.handle_aliases(imp[1].rstrip("\n"))
+                self.handle_aliases(imp[1].strip())
             elif len(imp := line.split("import")) > 1:
-                self.handle_imports(imp[1].rstrip("\n"))
+                self.handle_imports(imp[1])
             else:
                 break
 
     def handle_aliases(self, imp):
-        self.imp_map[imp.strip()] = ImportData(self.line_num, 0, False)
+        self.imp_map[imp] = ImportData(self.line_num, 0, False)
 
     def handle_imports(self, imp):
-        if imp.startswith("*"):
+        imp_ = imp.strip()
+        if imp_.startswith("*"):
             raise ValueError(BAD_PRACTICE_ERROR)
 
         imp_list = imp.split(",")
@@ -61,7 +71,6 @@ class Cleaner:
             if line.strip().startswith("#"):
                 continue
             for imp in self.imp_map:
-                # TODO: extract regex as const
                 if re.search(IMPORT_PATTERN.format(imp=imp), line):
                     # track import usage
                     self.imp_map[imp].count += 1
@@ -71,7 +80,7 @@ class Cleaner:
             skip, imp_list = self.build_multiple_import_list(i)
             if skip is False:
                 self.write_import_line(f, imp_list, line)
-        # write emtpy lines between import block and rest of code
+        # write emtpy lines after import block
         f.write("\n\n")
 
     def write_import_line(self, f, imp_list, line):
@@ -115,17 +124,20 @@ class Cleaner:
             self.read_imports()
             self.read_rest_of_file()
             self.write_to_temp_file()
-        except (RuntimeError, Exception):
-            logging.error(CLEANUP_FAILED_ERROR)
+        except (ValueError, Exception) as e:
+            self.logger.error(CLEANUP_FAILED_ERROR)
+            self.logger.error(e)
             if os.path.exists(self.temp_file):
                 os.remove(self.temp_file)
         else:
             os.replace(self.temp_file, self.file)
+            self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("file_path")
     args = parser.parse_args()
-    # file_path = "foo.py"
     Cleaner(args.file_path, True).clean_imports()
+
+    # Cleaner("foo.py", True).clean_imports()

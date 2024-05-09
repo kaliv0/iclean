@@ -17,4 +17,4 @@ if __name__ == "__main__":
     pp({"john": "osp("})
     # urllib.parse.urlencode({"fizz": "buzz"})
     logging.warning("func")
-    munc()
+    func()
