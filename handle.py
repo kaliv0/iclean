@@ -1,6 +1,5 @@
 import logging
 import os
-import pprint
 import re
 
 
@@ -11,13 +10,13 @@ class Cleaner:
             self.lines = f.readlines()
         self.temp_file = temp_file
         self.imp_map = {}
-        self.line_num = 0
+        self.line_num = -1
 
     def read_imports(self):
         for line in self.lines:
             self.line_num += 1
             # skip commented out imports -> TODO: pass as flag by user
-            if line.startswith("#"):
+            if line.startswith(("#", "\n")):  # TODO: check if skip properly new lines
                 continue
             # handle aliases
             if (idx := line.find("as")) >= 0:
@@ -25,7 +24,7 @@ class Cleaner:
             # handle regular imports (multiple, separated by comma on same line)
             elif (idx := line.find("import")) >= 0:
                 self.handle_imports(line, idx)
-            elif line.startswith(("\n", "#")) is False:
+            else:
                 break
 
     def handle_aliases(self, line, idx):
@@ -51,13 +50,15 @@ class Cleaner:
                 pattern = f" {imp}[.(]"
                 if re.search(pattern, line):
                     self.imp_map[imp][1] += 1
-        pprint.pprint(self.imp_map)
+        print(self.imp_map)
 
     def write_imports(self, f):
         # TODO: skip if initial lines are empty
         # write imports
-        for i, line in enumerate(self.lines[: self.line_num], 1):
+        prev_line = None
+        for i, line in enumerate(self.lines[: self.line_num], 0):
             skip = False
+            imp_list = []
             for imp, val in list(self.imp_map.items()):
                 ln = val[0]
                 cnt = val[1]
@@ -67,15 +68,21 @@ class Cleaner:
                         skip = True
                         break
                 else:
-                    if ln == i and cnt == 0:
-                        line = line.replace(f"{imp}, ", "")
-                        line = line.replace(f", {imp}", "")
-                        line = line.replace(f"{imp}", "")
-                        if line[line.find("import") + len("import") + 1] == "\n":
-                            skip = True
+                    if ln == i and cnt > 0:
+                        imp_list.append(imp)
 
             if not skip:
-                f.write(line)
+                if imp_list:
+                    f.write(
+                        line[: line.find("import") + len("import") + 1] + ", ".join(imp_list) + "\n"
+                    )
+                else:
+                    # avoid writing unused multiple imports on same line TODO: optimize
+                    # avoid writing new line on top of file
+                    if ("," in line) or (line == "\n" and prev_line in ("\n", None)):
+                        continue
+                    f.write(line)
+                prev_line = line
 
     def write_rest_of_file(self, f):
         # write rest of file
