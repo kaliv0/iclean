@@ -1,11 +1,13 @@
+from bar import munc, func
 import urllib.parse
 import os
 from os import scandir
-from bar import func, munc
+
+# from bar import func, munc
 import logging
 
-# from bar import munc, func
-# from hack import skunk, trunk
+from hack import skunk, trunk
+
 # from difflib import *
 from pprint import pprint as pp
 from os import path as osp

@@ -69,6 +69,11 @@ class Cleaner:
                 else:
                     if ln == i and cnt == 0:
                         line = line.replace(f"{imp}, ", "")
+                        line = line.replace(f", {imp}", "")
+                        line = line.replace(f"{imp}", "")
+                        if line[line.find("import") + len("import") + 1] == "\n":
+                            skip = True
+
             if not skip:
                 f.write(line)
 
