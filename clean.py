@@ -8,11 +8,19 @@ __version__ = "0.0.1"
 
 LOG_FORMAT = "%(levelname)s: %(message)s"
 IMPORT_PATTERN = " {imported}[.(]"
-IMPORT_KEYWORD_LEN = len("import") + 1
+TEMP_TEMPLATE = "{file}.swap"
+
 BAD_PRACTICE_ERROR = "Bad practice using import *"
 CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports:"
 CLEANUP_SUCCESSFUL = "{file} cleaned up successfully"
-TEMP_TEMPLATE = "{file}.swap"
+
+IMPORT_KEYWORD_LEN = len("import") + 1
+COMMENT = "#"
+WILDCARD = "*"
+ALIAS = "as"
+IMPORT = "import"
+NEW_LINE = "\n"
+DELIMITER = ","
 
 
 @dataclass
@@ -59,12 +67,12 @@ class Cleaner:
         for line in self.lines:
             self.line_num += 1
             # skip commented out imports
-            if line.startswith(("#", "\n")):
+            if line.startswith((COMMENT, NEW_LINE)):
                 continue
 
-            if len(imported := line.split("as")) > 1:
+            if len(imported := line.split(ALIAS)) > 1:
                 self._handle_aliases(imported[1].strip())
-            elif len(imported := line.split("import")) > 1:
+            elif len(imported := line.split(IMPORT)) > 1:
                 self._handle_imports(imported[1])
             else:
                 break
@@ -73,17 +81,17 @@ class Cleaner:
         self.import_data[imported] = ImportData(self.line_num, 0, False)
 
     def _handle_imports(self, imported):
-        if imported.strip().startswith("*"):
+        if imported.strip().startswith(WILDCARD):
             raise ValueError(BAD_PRACTICE_ERROR)
 
-        import_list = imported.split(",")
+        import_list = imported.split(DELIMITER)
         for imported in import_list:
             is_multi_import_line = len(import_list) > 1
             self.import_data[imported.strip()] = ImportData(self.line_num, 0, is_multi_import_line)
 
     def read_rest_of_file(self):
-        for line in self.lines[self.line_num:]:
-            if line.strip().startswith("#"):
+        for line in self.lines[self.line_num :]:
+            if line.strip().startswith(COMMENT):
                 continue
             for imported in self.import_data:
                 if re.search(IMPORT_PATTERN.format(imported=imported), line):
@@ -118,24 +126,28 @@ class Cleaner:
 
     def _write_import_line(self, file_writer, import_list, line):
         if import_list or self._should_write_import_line(line):
-            if "as" in line or "#" in line:
+            if ALIAS in line or COMMENT in line:
                 file_writer.write(line)
             else:
                 file_writer.write(self._prepare_import_line(import_list, line))
 
     @staticmethod
     def _should_write_import_line(line):
-        is_commented_import = line.startswith("#")
-        is_unused_multi_imports = "," in line
-        is_blank = line == "\n"
+        is_commented_import = line.startswith(COMMENT)
+        is_unused_multi_imports = DELIMITER in line
+        is_blank = line == NEW_LINE
         return is_commented_import or not (is_unused_multi_imports or is_blank)
 
     @staticmethod
     def _prepare_import_line(import_list, line):
-        return line[: line.find("import") + IMPORT_KEYWORD_LEN] + ", ".join(import_list) + "\n"
+        return (
+            line[: line.find(IMPORT) + IMPORT_KEYWORD_LEN]
+            + f"{DELIMITER} ".join(import_list)
+            + NEW_LINE
+        )
 
     def write_rest_of_file(self, file_writer):
-        for line in self.lines[self.line_num:]:
+        for line in self.lines[self.line_num :]:
             file_writer.write(line)
 
 
