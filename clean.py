@@ -13,7 +13,7 @@ TEMP_TEMPLATE = "{file}.swap"
 
 BAD_PRACTICE_ERROR = "Bad practice using import *"
 CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports:"
-CLEANUP_SUCCESSFUL = "{file} cleaned up successfully"
+CLEANUP_SUCCESSFUL = "Cleaned up {file}"
 
 IMPORT_KEYWORD_LEN = len("import") + 1
 COMMENT = "#"
@@ -22,6 +22,7 @@ ALIAS = "as"
 IMPORT = "import"
 NEW_LINE = "\n"
 DELIMITER = ","
+CWD = "."
 
 
 # ### helper classes ###
@@ -58,18 +59,25 @@ class Cleaner:
         self.line_num = -1
 
     # ### main logic ###
-    def process_paths(self, path_list, skip_list):
+    def process_paths(self, path_list, skip_list, dir_level):
         for path in path_list:
+            if path != CWD:
+                path = os.path.join(dir_level, path)
+
+            # TODO: extract constants
             if os.path.exists(path) is False:
-                print(f"{path} doesn't exist")
+                self.logger.info(f"{path} doesn't exist")
                 continue
             if skip_list and path in skip_list:
-                print(f"{path} is in skip list")
+                self.logger.info(f"{path} is in skip list")
                 continue
-            # if os.path.isdir(path):
-            #     call recursively
+            if os.path.isdir(path):
+                nested_paths = os.listdir(path)
+                self.process_paths(nested_paths, skip_list, dir_level=path)
+                continue
+
             if path.endswith(".py") is False:
-                print(f"{path} is not a python file")
+                self.logger.info(f"{path} is not a python file")
                 continue
 
             self.set_up(path)
@@ -180,7 +188,7 @@ class Cleaner:
 
 def main():
     path_list, skip_list = read_input()
-    Cleaner().process_paths(path_list, skip_list)
+    Cleaner().process_paths(path_list, skip_list, dir_level=CWD)
 
 
 def read_input():
