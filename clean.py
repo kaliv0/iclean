@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 __version__ = "0.0.1"
 
+# ### constants ###
 LOG_FORMAT = "%(levelname)s: %(message)s"
 IMPORT_PATTERN = " {imported}[.(]"
 TEMP_TEMPLATE = "{file}.swap"
@@ -23,6 +24,7 @@ NEW_LINE = "\n"
 DELIMITER = ","
 
 
+# ### helper classes ###
 @dataclass
 class ImportData:
     line_num: int
@@ -31,25 +33,48 @@ class ImportData:
 
 
 class Cleaner:
-    # TODO: used setUp/ tearDown-like functions before each file
-    #  instead of creating new instance of Cleaner
-    def __init__(self, file):
+    # ### settings ###
+    def __init__(self):
+        self.logger = self._get_logger()
+        self.file = None
+        self.temp_file = None
+        self.lines = None
+        self.import_data = None
+        self.line_num = None
+
+    @staticmethod
+    def _get_logger():
+        logger = logging.getLogger(__name__)
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+        return logger
+
+    def set_up(self, file):
         self.file = file
         self.temp_file = TEMP_TEMPLATE.format(file=file)
-        self.logger = self._setup_logger()
         # load file in memory
         with open(file, "r") as f:
             self.lines = f.readlines()
         self.import_data = {}
         self.line_num = -1
 
-    @staticmethod
-    def _setup_logger():
-        logger = logging.getLogger(__name__)
-        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-        return logger
-
     # ### main logic ###
+    def process_paths(self, path_list, skip_list):
+        for path in path_list:
+            if os.path.exists(path) is False:
+                print(f"{path} doesn't exist")
+                continue
+            if skip_list and path in skip_list:
+                print(f"{path} is in skip list")
+                continue
+            # if os.path.isdir(path):
+            #     call recursively
+            if path.endswith(".py") is False:
+                print(f"{path} is not a python file")
+                continue
+
+            self.set_up(path)
+            self.clean_imports()
+
     def clean_imports(self):
         try:
             self.read_imports()
@@ -154,26 +179,20 @@ class Cleaner:
 
 
 def main():
+    path_list, skip_list = read_input()
+    Cleaner().process_paths(path_list, skip_list)
+
+
+def read_input():
     parser = argparse.ArgumentParser()
     parser.add_argument("target", nargs="+")
+    parser.add_argument("--skip", nargs="*")
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
 
     args = parser.parse_args()
     path_list = args.target
-
-    for path in path_list:
-        if not os.path.exists(path):
-            print("skipping ", path)
-            continue
-
-        # if os.path.isdir(path):
-        #     call recursively
-
-        if not path.endswith(".py"):
-            print("skipping ", path)
-            continue
-
-        Cleaner(path).clean_imports()
+    skip_list = args.skip
+    return path_list, skip_list
 
 
 if __name__ == "__main__":
