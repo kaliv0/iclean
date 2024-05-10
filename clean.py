@@ -4,11 +4,10 @@ import os
 import re
 from dataclasses import dataclass
 
-
 __version__ = "0.0.1"
 
 LOG_FORMAT = "%(levelname)s: %(message)s"
-IMPORT_PATTERN = " {imp}[.(]"
+IMPORT_PATTERN = " {imported}[.(]"
 IMPORT_KEYWORD_LEN = len("import") + 1
 BAD_PRACTICE_ERROR = "Bad practice using import *"
 CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports:"
@@ -20,107 +19,27 @@ TEMP_TEMPLATE = "{file}.swap"
 class ImportData:
     line_num: int
     count: int
-    is_multiple: bool
+    is_multi_import_line: bool
 
 
 class Cleaner:
-    def __init__(self, file, skip_commented):
+    def __init__(self, file):
         self.file = file
         self.temp_file = TEMP_TEMPLATE.format(file=file)
-        self.logger = self.setup_logger()
+        self.logger = self._setup_logger()
         # load file in memory
         with open(file, "r") as f:
             self.lines = f.readlines()
-        self.skip_commented = skip_commented
-        self.imp_map = {}
+        self.import_data = {}
         self.line_num = -1
 
     @staticmethod
-    def setup_logger():
+    def _setup_logger():
         logger = logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
         return logger
 
-    def read_imports(self):
-        for line in self.lines:
-            self.line_num += 1
-            # skip commented out imports
-            if line.startswith(("#", "\n")):
-                continue
-
-            if len(imp := line.split("as")) > 1:
-                self.handle_aliases(imp[1].strip())
-            elif len(imp := line.split("import")) > 1:
-                self.handle_imports(imp[1])
-            else:
-                break
-
-    def handle_aliases(self, imp):
-        self.imp_map[imp] = ImportData(self.line_num, 0, False)
-
-    def handle_imports(self, imp):
-        imp_ = imp.strip()
-        if imp_.startswith("*"):
-            raise ValueError(BAD_PRACTICE_ERROR)
-
-        imp_list = imp.split(",")
-        for imp in imp_list:
-            is_mult = len(imp_list) > 1
-            self.imp_map[imp.strip()] = ImportData(self.line_num, 0, is_mult)
-
-    def read_rest_of_file(self):
-        for line in self.lines[self.line_num :]:
-            if line.strip().startswith("#"):
-                continue
-            for imp in self.imp_map:
-                if re.search(IMPORT_PATTERN.format(imp=imp), line):
-                    # track import usage
-                    self.imp_map[imp].count += 1
-
-    def write_imports(self, f):
-        for i, line in enumerate(self.lines[: self.line_num], 0):
-            skip, imp_list = self.build_multiple_import_list(i)
-            if skip is False:
-                self.write_import_line(f, imp_list, line)
-        # write emtpy lines after import block
-        f.write("\n\n")
-
-    def write_import_line(self, f, imp_list, line):
-        if imp_list or self.should_write_import_line(line):
-            if "as" not in line:
-                line = self.prepare_import_line(imp_list, line)
-            f.write(line)
-
-    @staticmethod
-    def prepare_import_line(imp_list, line):
-        return line[: line.find("import") + IMPORT_KEYWORD_LEN] + ", ".join(imp_list) + "\n"
-
-    def should_write_import_line(self, line):
-        # TODO: pass as flag by user
-        skip_commented_imports = line.startswith("#") and self.skip_commented
-        skip_unused_multi_imports = "," in line
-        skip_blanks = line == "\n"
-        return not (skip_commented_imports or skip_unused_multi_imports or skip_blanks)
-
-    def build_multiple_import_list(self, i):
-        imp_list = []
-        for imp, val in list(self.imp_map.items()):
-            if val.line_num == i:
-                if val.count == 0 and val.is_multiple is False:
-                    return True, imp_list
-                if val.count > 0:
-                    imp_list.append(imp)
-        return False, imp_list
-
-    def write_rest_of_file(self, f):
-        for line in self.lines[self.line_num :]:
-            f.write(line)
-
-    def write_to_temp_file(self):
-        with open(self.temp_file, "w") as f:
-            self.write_imports(f)
-            self.write_rest_of_file(f)
-
+    # ### main logic ###
     def clean_imports(self):
         try:
             self.read_imports()
@@ -135,12 +54,96 @@ class Cleaner:
             os.replace(self.temp_file, self.file)
             self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
 
+    # ### parse file ###
+    def read_imports(self):
+        for line in self.lines:
+            self.line_num += 1
+            # skip commented out imports
+            if line.startswith(("#", "\n")):
+                continue
+
+            if len(imported := line.split("as")) > 1:
+                self._handle_aliases(imported[1].strip())
+            elif len(imported := line.split("import")) > 1:
+                self._handle_imports(imported[1])
+            else:
+                break
+
+    def _handle_aliases(self, imported):
+        self.import_data[imported] = ImportData(self.line_num, 0, False)
+
+    def _handle_imports(self, imported):
+        if imported.strip().startswith("*"):
+            raise ValueError(BAD_PRACTICE_ERROR)
+
+        import_list = imported.split(",")
+        for imported in import_list:
+            is_multi_import_line = len(import_list) > 1
+            self.import_data[imported.strip()] = ImportData(self.line_num, 0, is_multi_import_line)
+
+    def read_rest_of_file(self):
+        for line in self.lines[self.line_num:]:
+            if line.strip().startswith("#"):
+                continue
+            for imported in self.import_data:
+                if re.search(IMPORT_PATTERN.format(imported=imported), line):
+                    # track import usage
+                    self.import_data[imported].count += 1
+
+    # ### clean up file ###
+    def write_to_temp_file(self):
+        with open(self.temp_file, "w") as f:
+            self.write_imports(f)
+            self.write_rest_of_file(f)
+
+    def write_imports(self, file_writer):
+        for line_num, line in enumerate(self.lines[: self.line_num], 0):
+            should_write, import_list = self._build_multiple_import_list(line_num)
+            if should_write:
+                self._write_import_line(file_writer, import_list, line)
+        # write emtpy lines after import block
+        file_writer.write("\n\n")
+
+    def _build_multiple_import_list(self, line_num):
+        import_list = []
+        should_write = True
+        for imported, data in list(self.import_data.items()):
+            if data.line_num == line_num:
+                if data.count == 0 and data.is_multi_import_line is False:
+                    should_write = False
+                    break
+                elif data.count > 0:
+                    import_list.append(imported)
+        return should_write, import_list
+
+    def _write_import_line(self, file_writer, import_list, line):
+        if import_list or self._should_write_import_line(line):
+            if "as" in line or "#" in line:
+                file_writer.write(line)
+            else:
+                file_writer.write(self._prepare_import_line(import_list, line))
+
+    @staticmethod
+    def _should_write_import_line(line):
+        is_commented_import = line.startswith("#")
+        is_unused_multi_imports = "," in line
+        is_blank = line == "\n"
+        return is_commented_import or not (is_unused_multi_imports or is_blank)
+
+    @staticmethod
+    def _prepare_import_line(import_list, line):
+        return line[: line.find("import") + IMPORT_KEYWORD_LEN] + ", ".join(import_list) + "\n"
+
+    def write_rest_of_file(self, file_writer):
+        for line in self.lines[self.line_num:]:
+            file_writer.write(line)
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("file_path")
+    parser.add_argument("path")
     args = parser.parse_args()
-    Cleaner(args.file_path, True).clean_imports()
+    Cleaner(args.path).clean_imports()
 
 
 if __name__ == "__main__":
