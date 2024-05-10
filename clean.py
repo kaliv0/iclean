@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 
 
+__version__ = "0.0.1"
+
 LOG_FORMAT = "%(levelname)s: %(message)s"
 IMPORT_PATTERN = " {imp}[.(]"
 IMPORT_KEYWORD_LEN = len("import") + 1
@@ -134,10 +136,12 @@ class Cleaner:
             self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("file_path")
     args = parser.parse_args()
     Cleaner(args.file_path, True).clean_imports()
 
-    # Cleaner("foo.py", True).clean_imports()
+
+if __name__ == "__main__":
+    main()
