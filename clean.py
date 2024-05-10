@@ -31,6 +31,8 @@ class ImportData:
 
 
 class Cleaner:
+    # TODO: used setUp/ tearDown-like functions before each file
+    #  instead of creating new instance of Cleaner
     def __init__(self, file):
         self.file = file
         self.temp_file = TEMP_TEMPLATE.format(file=file)
@@ -153,9 +155,25 @@ class Cleaner:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("path")
+    parser.add_argument("target", nargs="+")
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
+
     args = parser.parse_args()
-    Cleaner(args.path).clean_imports()
+    path_list = args.target
+
+    for path in path_list:
+        if not os.path.exists(path):
+            print("skipping ", path)
+            continue
+
+        # if os.path.isdir(path):
+        #     call recursively
+
+        if not path.endswith(".py"):
+            print("skipping ", path)
+            continue
+
+        Cleaner(path).clean_imports()
 
 
 if __name__ == "__main__":
