@@ -2,7 +2,6 @@ import argparse
 import logging
 import os
 import re
-import sys
 from dataclasses import dataclass
 
 __version__ = "0.0.1"
@@ -43,6 +42,7 @@ class ImportData:
 class ImportLine:
     literal: str
     import_data: list[ImportData]
+    import_list: list[str]
     is_multi_import_line: bool  # ??
 
 
@@ -99,7 +99,6 @@ class Cleaner:
         self.read_imports()
         self.read_rest_of_file()
         pprint(self.import_lines)
-        sys.exit()
         self.write_to_temp_file()
         # except (ValueError, Exception) as e:
         #     self.logger.error(CLEANUP_FAILED_ERROR)
@@ -119,7 +118,9 @@ class Cleaner:
             # FIXME
             if line.startswith(COMMENT):
                 self.import_lines.append(
-                    ImportLine(literal=line, import_data=[], is_multi_import_line=False)
+                    ImportLine(
+                        literal=line, import_data=[], import_list=[], is_multi_import_line=False
+                    )
                 )
             elif len(imported := line.split(ALIAS)) > 1:
                 self._handle_aliases(line, imported[1])
@@ -133,7 +134,10 @@ class Cleaner:
         import_name = imported.strip()
         import_data = ImportData(name=import_name, count=0)
         import_line = ImportLine(
-            literal=line_literal, import_data=[import_data], is_multi_import_line=False
+            literal=line_literal,
+            import_data=[import_data],
+            import_list=[],
+            is_multi_import_line=False,
         )
         self.import_lines.append(import_line)
 
@@ -145,13 +149,15 @@ class Cleaner:
             raise ValueError(BAD_PRACTICE_ERROR)
 
         import_list = import_name.split(DELIMITER)
-        is_multi_import_line = len(import_list) > 1
         import_line = ImportLine(
-            literal=line_literal, import_data=[], is_multi_import_line=is_multi_import_line
+            literal=line_literal,
+            import_data=[],
+            import_list=[],
+            is_multi_import_line=len(import_list) > 1,
         )
 
         for import_literal in import_list:
-            import_data = ImportData(name=import_literal, count=0)
+            import_data = ImportData(name=import_literal.strip(), count=0)
             import_line.import_data.append(import_data)
 
         self.import_lines.append(import_line)
@@ -175,31 +181,35 @@ class Cleaner:
             self.write_rest_of_file(f)
 
     def write_imports(self, file_writer):
-        for line_num, line in enumerate(self.lines[: self.line_num], 0):
-            should_write, import_list = self._build_multiple_import_list(line_num)
+        lines_count = 0
+        for line in self.import_lines:
+            should_write = self._build_multiple_import_list(line)
             if should_write:
-                self._write_import_line(file_writer, import_list, line)
-        # write emtpy lines after import block
-        file_writer.write("\n\n")
+                self._write_import_line(file_writer, line)
+                lines_count += 1
 
-    def _build_multiple_import_list(self, line_num):
-        import_list = []
+        # write emtpy lines after import block if present
+        if lines_count > 0:
+            file_writer.write("\n\n")
+
+    @staticmethod
+    def _build_multiple_import_list(line):
         should_write = True
-        for imported, data in list(self.import_data.items()):
-            if data.line_num == line_num:
-                if data.count == 0 and data.is_multi_import_line is False:
-                    should_write = False
-                    break
-                elif data.count > 0:
-                    import_list.append(imported)
-        return should_write, import_list
+        for data in line.import_data:
+            if data.count == 0 and line.is_multi_import_line is False:
+                should_write = False
+                break
+            elif data.count > 0:
+                line.import_list.append(data.name)
+        return should_write
 
-    def _write_import_line(self, file_writer, import_list, line):
-        if import_list or self._should_write_import_line(line):
-            if ALIAS in line or COMMENT in line:
-                file_writer.write(line)
+    def _write_import_line(self, file_writer, line):
+        if line.import_list or self._should_write_import_line(line.literal):
+            print(f"{line.import_list=}")
+            if ALIAS in line.literal or COMMENT in line.literal:
+                file_writer.write(line.literal)
             else:
-                file_writer.write(self._prepare_import_line(import_list, line))
+                file_writer.write(self._prepare_import_line(line.literal, line.import_list))
 
     @staticmethod
     def _should_write_import_line(line):
@@ -209,9 +219,9 @@ class Cleaner:
         return is_commented_import or not (is_unused_multi_imports or is_blank)
 
     @staticmethod
-    def _prepare_import_line(import_list, line):
+    def _prepare_import_line(line_literal, import_list):
         return (
-            line[: line.find(IMPORT) + IMPORT_KEYWORD_LEN]
+            line_literal[: line_literal.find(IMPORT) + IMPORT_KEYWORD_LEN]
             + f"{DELIMITER} ".join(import_list)
             + NEW_LINE
         )
