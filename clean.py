@@ -2,9 +2,12 @@ import argparse
 import logging
 import os
 import re
+import sys
 from dataclasses import dataclass
 
 __version__ = "0.0.1"
+
+from pprint import pprint
 
 # ### constants ###
 LOG_FORMAT = "%(levelname)s: %(message)s"
@@ -32,9 +35,15 @@ PY_EXT = ".py"  # TODO:??
 # ### helper classes ###
 @dataclass
 class ImportData:
-    line_num: int
+    name: str
     count: int
-    is_multi_import_line: bool
+
+
+@dataclass
+class ImportLine:
+    literal: str
+    import_data: list[ImportData]
+    is_multi_import_line: bool  # ??
 
 
 class Cleaner:
@@ -44,8 +53,8 @@ class Cleaner:
         self.file = None
         self.temp_file = None
         self.lines = None
-        self.import_data = None
         self.line_num = None
+        self.import_lines: list[ImportLine] = []
 
     @staticmethod
     def _get_logger():
@@ -59,8 +68,8 @@ class Cleaner:
         # load file in memory
         with open(file, "r") as f:
             self.lines = f.readlines()
-        self.import_data = {}
         self.line_num = -1
+        self.import_lines = []
 
     # ### main logic ###
     def process_paths(self, path_list, skip_list, dir_level):
@@ -86,54 +95,78 @@ class Cleaner:
             self.clean_imports()
 
     def clean_imports(self):
-        try:
-            self.read_imports()
-            self.read_rest_of_file()
-            self.write_to_temp_file()
-        except (ValueError, Exception) as e:
-            self.logger.error(CLEANUP_FAILED_ERROR)
-            self.logger.error(e)
-            if os.path.exists(self.temp_file):
-                os.remove(self.temp_file)
-        else:
-            os.replace(self.temp_file, self.file)
-            self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
+        # try:
+        self.read_imports()
+        self.read_rest_of_file()
+        pprint(self.import_lines)
+        sys.exit()
+        self.write_to_temp_file()
+        # except (ValueError, Exception) as e:
+        #     self.logger.error(CLEANUP_FAILED_ERROR)
+        #     self.logger.error(e)
+        #     if os.path.exists(self.temp_file):
+        #         os.remove(self.temp_file)
+        # else:
+        #     os.replace(self.temp_file, self.file)
+        #     self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
 
     # ### parse file ###
     def read_imports(self):
-        for line in self.lines:
+        for line_num, line in enumerate(self.lines):
             self.line_num += 1
-            # skip commented out imports
-            if line.startswith((COMMENT, NEW_LINE)):
+            if line.startswith(NEW_LINE):
                 continue
-
-            if len(imported := line.split(ALIAS)) > 1:
-                self._handle_aliases(imported[1].strip())
+            # FIXME
+            if line.startswith(COMMENT):
+                self.import_lines.append(
+                    ImportLine(literal=line, import_data=[], is_multi_import_line=False)
+                )
+            elif len(imported := line.split(ALIAS)) > 1:
+                self._handle_aliases(line, imported[1])
             elif len(imported := line.split(IMPORT)) > 1:
-                self._handle_imports(imported[1])
+                self._handle_imports(line, imported[1])
             else:
                 break
 
-    def _handle_aliases(self, imported):
-        self.import_data[imported] = ImportData(self.line_num, 0, False)
+    def _handle_aliases(self, line_literal, imported):
+        # line_literal = imported[0].strip()  # FIXME
+        import_name = imported.strip()
+        import_data = ImportData(name=import_name, count=0)
+        import_line = ImportLine(
+            literal=line_literal, import_data=[import_data], is_multi_import_line=False
+        )
+        self.import_lines.append(import_line)
 
-    def _handle_imports(self, imported):
-        if imported.strip().startswith(WILDCARD):
+    def _handle_imports(self, line_literal, imported):
+        # line_literal = imported[0].strip() + " import "  # FIXME
+        import_name = imported.strip()
+
+        if import_name.startswith(WILDCARD):
             raise ValueError(BAD_PRACTICE_ERROR)
 
-        import_list = imported.split(DELIMITER)
-        for imported in import_list:
-            is_multi_import_line = len(import_list) > 1
-            self.import_data[imported.strip()] = ImportData(self.line_num, 0, is_multi_import_line)
+        import_list = import_name.split(DELIMITER)
+        is_multi_import_line = len(import_list) > 1
+        import_line = ImportLine(
+            literal=line_literal, import_data=[], is_multi_import_line=is_multi_import_line
+        )
+
+        for import_literal in import_list:
+            import_data = ImportData(name=import_literal, count=0)
+            import_line.import_data.append(import_data)
+
+        self.import_lines.append(import_line)
 
     def read_rest_of_file(self):
         for line in self.lines[self.line_num :]:
             if line.strip().startswith(COMMENT):
                 continue
-            for imported in self.import_data:
-                if re.search(IMPORT_PATTERN.format(imported=imported), line):
-                    # track import usage
-                    self.import_data[imported].count += 1
+
+            for imp_line in self.import_lines:
+                for imported in imp_line.import_data:
+                    if re.search(IMPORT_PATTERN.format(imported=imported.name), line):
+                        # track import usage
+                        # NB: since it uses pointers to objects in loop we increment count directly
+                        imported.count += 1
 
     # ### clean up file ###
     def write_to_temp_file(self):
