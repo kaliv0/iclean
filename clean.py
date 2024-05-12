@@ -20,11 +20,12 @@ NON_EXISTENT_PATH = "{path} doesn't exist"
 SKIP_PATH = "{path} is in skip list"
 NOT_PY_FILE = "{path} is not a python file"
 
-IMPORT_KEYWORD_LEN = len("import") + 1
 COMMENT = "#"
 WILDCARD = "*"
-ALIAS = "as"
-IMPORT = "import"
+ALIAS = " as "
+IMPORT = "import "
+IMPORT_LEN = len(IMPORT)
+ALIAS_LEN = len(ALIAS)
 NEW_LINE = "\n"
 DELIMITER = ","
 CWD = "."
@@ -113,6 +114,7 @@ class Cleaner:
     def read_imports(self):
         for line_num, line in enumerate(self.lines):
             self.line_num += 1
+            # TODO: add to ImportLine line_type enum -> regular, alias, new_line or comment -> use in write_imports
             if line.startswith(NEW_LINE):
                 continue
             # FIXME
@@ -122,15 +124,25 @@ class Cleaner:
                         literal=line, import_data=[], import_list=[], is_multi_import_line=False
                     )
                 )
-            elif len(imported := line.split(ALIAS)) > 1:
-                self._handle_aliases(line, imported[1])
-            elif len(imported := line.split(IMPORT)) > 1:
-                self._handle_imports(line, imported[1])
+            # elif len(imported := line.split(ALIAS)) > 1:
+            #     self._handle_aliases(line, imported[1])
+            # elif len(imported := line.split(IMPORT)) > 1:
+            #     self._handle_imports(line, imported[1])
+            elif (idx := line.find(ALIAS)) >= 0:
+                import_boundary = idx + ALIAS_LEN
+                imported = line[import_boundary:]  # ??
+                print(f"{line=}, {imported=}")
+                self._handle_imports(line, imported)
+            elif (idx := line.find(IMPORT)) >= 0:
+                import_boundary = idx + IMPORT_LEN
+                header = line[:import_boundary]
+                imported = line[import_boundary:]
+                print(f"{header=}, {imported=}")
+                self._handle_imports(header, imported)
             else:
                 break
 
     def _handle_aliases(self, line_literal, imported):
-        # line_literal = imported[0].strip()  # FIXME
         import_name = imported.strip()
         import_data = ImportData(name=import_name, count=0)
         import_line = ImportLine(
@@ -142,8 +154,7 @@ class Cleaner:
         self.import_lines.append(import_line)
 
     def _handle_imports(self, line_literal, imported):
-        # line_literal = imported[0].strip() + " import "  # FIXME
-        import_name = imported.strip()
+        import_name = imported.strip()  # TODO: do we need this?
 
         if import_name.startswith(WILDCARD):
             raise ValueError(BAD_PRACTICE_ERROR)
@@ -171,7 +182,6 @@ class Cleaner:
                 for imported in imp_line.import_data:
                     if re.search(IMPORT_PATTERN.format(imported=imported.name), line):
                         # track import usage
-                        # NB: since it uses pointers to objects in loop we increment count directly
                         imported.count += 1
 
     # ### clean up file ###
@@ -206,7 +216,7 @@ class Cleaner:
     def _write_import_line(self, file_writer, line):
         if line.import_list or self._should_write_import_line(line.literal):
             print(f"{line.import_list=}")
-            if ALIAS in line.literal or COMMENT in line.literal:
+            if ALIAS in line.literal or COMMENT in line.literal:  # TODO: optimize
                 file_writer.write(line.literal)
             else:
                 file_writer.write(self._prepare_import_line(line.literal, line.import_list))
@@ -220,11 +230,7 @@ class Cleaner:
 
     @staticmethod
     def _prepare_import_line(line_literal, import_list):
-        return (
-            line_literal[: line_literal.find(IMPORT) + IMPORT_KEYWORD_LEN]
-            + f"{DELIMITER} ".join(import_list)
-            + NEW_LINE
-        )
+        return line_literal + f"{DELIMITER} ".join(import_list) + NEW_LINE
 
     def write_rest_of_file(self, file_writer):
         for line in self.lines[self.line_num :]:
