@@ -3,12 +3,16 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from enum import Enum, auto
+from pprint import pprint
+
 
 __version__ = "0.0.1"
 
+
 # ### constants ###
 LOG_FORMAT = "%(levelname)s: %(message)s"
-IMPORT_PATTERN = " {imported}[.(]"
+IMPORT_PATTERN = r" {imported}[.(]"
 TEMP_TEMPLATE = "{file}.swap"
 
 BAD_PRACTICE_ERROR = "Bad practice using import *"
@@ -18,34 +22,79 @@ NON_EXISTENT_PATH = "{path} doesn't exist"
 SKIP_PATH = "{path} is in skip list"
 NOT_PY_FILE = "{path} is not a python file"
 
-IMPORT_KEYWORD_LEN = len("import") + 1
 COMMENT = "#"
 WILDCARD = "*"
-ALIAS = "as"
-IMPORT = "import"
+ALIAS = " as "
+IMPORT = "import "
+IMPORT_LEN = len(IMPORT)
+ALIAS_LEN = len(ALIAS)
 NEW_LINE = "\n"
 DELIMITER = ","
 CWD = "."
-PY_EXT = ".py"  # TODO:??
+PY_EXT = ".py"
+
+# based on .gitignore
+DEFAULT_SKIP_LIST = {
+    "build",
+    "develop-eggs",
+    "dist",
+    "downloads",
+    "eggs",
+    "lib",
+    "lib64",
+    "parts",
+    "sdist",
+    "var",
+    "wheels",
+    "share",
+    "htmlcov",
+    "cover",
+    "instance",
+    "docs",
+    "target",
+    "profile_default",
+    "site",
+    "venv",
+    "env",
+    ".venv",
+    ".env",
+    "ENV",
+}
 
 
 # ### helper classes ###
 @dataclass
 class ImportData:
-    line_num: int
+    name: str
     count: int
-    is_multi_import_line: bool
+
+
+class ImportLineType(Enum):
+    REGULAR = auto()
+    ALIAS = auto()
+    MULTI_IMPORT = auto()
+    COMMENT = auto()
+    NEW_LINE = auto()
+
+
+@dataclass
+class ImportLine:
+    literal: str
+    import_data: list[ImportData]
+    import_list: list[str]
+    type: ImportLineType
 
 
 class Cleaner:
     # ### settings ###
-    def __init__(self):
+    def __init__(self, skip_list):
         self.logger = self._get_logger()
         self.file = None
         self.temp_file = None
         self.lines = None
-        self.import_data = None
         self.line_num = None
+        self.import_lines: list[ImportLine] = []
+        self.skip_list = DEFAULT_SKIP_LIST.union(skip_list)
 
     @staticmethod
     def _get_logger():
@@ -59,11 +108,12 @@ class Cleaner:
         # load file in memory
         with open(file, "r") as f:
             self.lines = f.readlines()
-        self.import_data = {}
         self.line_num = -1
+        self.import_lines = []
 
     # ### main logic ###
-    def process_paths(self, path_list, skip_list, dir_level):
+    def process_paths(self, path_list, dir_level):
+        print(self.skip_list)
         for path in path_list:
             if path != CWD:
                 path = os.path.join(dir_level, path)
@@ -71,12 +121,14 @@ class Cleaner:
             if os.path.exists(path) is False:
                 self.logger.info(NON_EXISTENT_PATH.format(path=path))
                 continue
-            if skip_list and path in skip_list:
+            if self._should_skip_path(os.path.basename(path)):
+                # TODO: log only in user-defined skip list or not at all??
                 self.logger.info(SKIP_PATH.format(path=path))
                 continue
             if os.path.isdir(path):
+                print(path)
                 nested_paths = os.listdir(path)
-                self.process_paths(nested_paths, skip_list, dir_level=path)
+                self.process_paths(nested_paths, dir_level=path)
                 continue
             if path.endswith(PY_EXT) is False:
                 self.logger.info(NOT_PY_FILE.format(path=path))
@@ -85,55 +137,97 @@ class Cleaner:
             self.set_up(path)
             self.clean_imports()
 
+    def _should_skip_path(self, path):
+        # f_pattern = r"[\w-]+"
+        return (
+            path in self.skip_list
+            or re.search(rf"^[.][\w-]+$", path)
+            or re.search(rf"^__[\w-]+__$", path)
+            or path.endswith(".egg-info")
+            or path.endswith(".bak")
+        )
+
     def clean_imports(self):
-        try:
-            self.read_imports()
-            self.read_rest_of_file()
-            self.write_to_temp_file()
-        except (ValueError, Exception) as e:
-            self.logger.error(CLEANUP_FAILED_ERROR)
-            self.logger.error(e)
-            if os.path.exists(self.temp_file):
-                os.remove(self.temp_file)
-        else:
-            os.replace(self.temp_file, self.file)
-            self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
+        # try:
+        self.read_imports()
+        self.read_rest_of_file()
+        pprint(self.import_lines)
+        self.write_to_temp_file()
+        # except (ValueError, Exception) as e:
+        #     self.logger.error(CLEANUP_FAILED_ERROR)
+        #     self.logger.error(e)
+        #     if os.path.exists(self.temp_file):
+        #         os.remove(self.temp_file)
+        # else:
+        #     os.replace(self.temp_file, self.file)
+        #     self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
 
     # ### parse file ###
     def read_imports(self):
-        for line in self.lines:
+        for line_num, line in enumerate(self.lines):
             self.line_num += 1
-            # skip commented out imports
-            if line.startswith((COMMENT, NEW_LINE)):
-                continue
-
-            if len(imported := line.split(ALIAS)) > 1:
-                self._handle_aliases(imported[1].strip())
-            elif len(imported := line.split(IMPORT)) > 1:
-                self._handle_imports(imported[1])
+            if line.startswith(NEW_LINE):
+                self._handle_non_analysed_imports(line, ImportLineType.NEW_LINE)
+            elif line.startswith(COMMENT):
+                self._handle_non_analysed_imports(line, ImportLineType.COMMENT)
+            elif (idx := line.find(ALIAS)) >= 0:
+                import_boundary = idx + ALIAS_LEN
+                imported = line[import_boundary:]
+                print(f"{line=}, {imported=}")
+                self._handle_aliases(line, imported)
+            elif (idx := line.find(IMPORT)) >= 0:
+                import_boundary = idx + IMPORT_LEN
+                header = line[:import_boundary]
+                imported = line[import_boundary:]
+                print(f"{header=}, {imported=}")
+                self._handle_regular_imports(header, imported)
             else:
                 break
 
-    def _handle_aliases(self, imported):
-        self.import_data[imported] = ImportData(self.line_num, 0, False)
+    def _handle_non_analysed_imports(self, line_literal, line_type):
+        self.import_lines.append(
+            ImportLine(literal=line_literal, import_data=[], import_list=[], type=line_type)
+        )
 
-    def _handle_imports(self, imported):
-        if imported.strip().startswith(WILDCARD):
+    def _handle_aliases(self, line_literal, imported):
+        import_name = imported.strip()
+        import_data = ImportData(name=import_name, count=0)
+        import_line = ImportLine(
+            literal=line_literal,
+            import_data=[import_data],
+            import_list=[],
+            type=ImportLineType.ALIAS,
+        )
+        self.import_lines.append(import_line)
+
+    def _handle_regular_imports(self, line_literal, imported):
+        import_names = imported.strip()
+        if import_names.startswith(WILDCARD):
             raise ValueError(BAD_PRACTICE_ERROR)
 
-        import_list = imported.split(DELIMITER)
-        for imported in import_list:
-            is_multi_import_line = len(import_list) > 1
-            self.import_data[imported.strip()] = ImportData(self.line_num, 0, is_multi_import_line)
+        import_list = import_names.split(DELIMITER)
+        import_line = ImportLine(
+            literal=line_literal,
+            import_data=[],
+            import_list=[],
+            type=ImportLineType.MULTI_IMPORT if len(import_list) > 1 else ImportLineType.REGULAR,
+        )
+
+        for import_literal in import_list:
+            import_data = ImportData(name=import_literal.strip(), count=0)
+            import_line.import_data.append(import_data)
+        self.import_lines.append(import_line)
 
     def read_rest_of_file(self):
         for line in self.lines[self.line_num :]:
             if line.strip().startswith(COMMENT):
                 continue
-            for imported in self.import_data:
-                if re.search(IMPORT_PATTERN.format(imported=imported), line):
-                    # track import usage
-                    self.import_data[imported].count += 1
+
+            for imp_line in self.import_lines:
+                for imported in imp_line.import_data:
+                    if re.search(IMPORT_PATTERN.format(imported=imported.name), line):
+                        # track import usage
+                        imported.count += 1
 
     # ### clean up file ###
     def write_to_temp_file(self):
@@ -142,46 +236,45 @@ class Cleaner:
             self.write_rest_of_file(f)
 
     def write_imports(self, file_writer):
-        for line_num, line in enumerate(self.lines[: self.line_num], 0):
-            should_write, import_list = self._build_multiple_import_list(line_num)
+        lines_count = 0
+        for line in self.import_lines:
+            should_write = self._build_multiple_import_list(line)
             if should_write:
-                self._write_import_line(file_writer, import_list, line)
-        # write emtpy lines after import block
-        file_writer.write("\n\n")
+                self._write_import_line(file_writer, line)
+                lines_count += 1
 
-    def _build_multiple_import_list(self, line_num):
-        import_list = []
+        # write emtpy lines after import block if present
+        if lines_count > 0:
+            file_writer.write("\n\n")
+
+    @staticmethod
+    def _build_multiple_import_list(line):
         should_write = True
-        for imported, data in list(self.import_data.items()):
-            if data.line_num == line_num:
-                if data.count == 0 and data.is_multi_import_line is False:
-                    should_write = False
-                    break
-                elif data.count > 0:
-                    import_list.append(imported)
-        return should_write, import_list
+        for data in line.import_data:
+            if data.count == 0 and line.type != ImportLineType.MULTI_IMPORT:
+                should_write = False
+                break
+            elif data.count > 0:
+                line.import_list.append(data.name)
+        return should_write
 
-    def _write_import_line(self, file_writer, import_list, line):
-        if import_list or self._should_write_import_line(line):
-            if ALIAS in line or COMMENT in line:
-                file_writer.write(line)
+    def _write_import_line(self, file_writer, line):
+        if line.import_list or self._should_write_import_line(line):
+            if line.type in (ImportLineType.ALIAS, ImportLineType.COMMENT):
+                file_writer.write(line.literal)
             else:
-                file_writer.write(self._prepare_import_line(import_list, line))
+                file_writer.write(self._prepare_import_line(line.literal, line.import_list))
 
     @staticmethod
     def _should_write_import_line(line):
-        is_commented_import = line.startswith(COMMENT)
-        is_unused_multi_imports = DELIMITER in line
-        is_blank = line == NEW_LINE
-        return is_commented_import or not (is_unused_multi_imports or is_blank)
+        return line.type == ImportLineType.MULTI_IMPORT or line.type not in (
+            ImportLineType.MULTI_IMPORT,
+            ImportLineType.NEW_LINE,
+        )
 
     @staticmethod
-    def _prepare_import_line(import_list, line):
-        return (
-            line[: line.find(IMPORT) + IMPORT_KEYWORD_LEN]
-            + f"{DELIMITER} ".join(import_list)
-            + NEW_LINE
-        )
+    def _prepare_import_line(line_literal, import_list):
+        return line_literal + f"{DELIMITER} ".join(import_list) + NEW_LINE
 
     def write_rest_of_file(self, file_writer):
         for line in self.lines[self.line_num :]:
@@ -190,13 +283,13 @@ class Cleaner:
 
 def main():
     path_list, skip_list = read_input()
-    Cleaner().process_paths(path_list, skip_list, dir_level=CWD)
+    Cleaner(skip_list).process_paths(path_list, dir_level=CWD)
 
 
 def read_input():
     parser = argparse.ArgumentParser()
     parser.add_argument("target", nargs="+")
-    parser.add_argument("--skip", nargs="*")
+    parser.add_argument("--skip", nargs="*", default=())
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
 
     args = parser.parse_args()
