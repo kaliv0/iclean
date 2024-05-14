@@ -30,7 +30,6 @@ class Messages:
     NOT_PY_FILE = "{path} is not a python file"
 
 
-# TODO: package inside a dataclass?
 COMMENT = "#"
 WILDCARD = "*"
 ALIAS = " as "
