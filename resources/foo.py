@@ -16,7 +16,7 @@ from os import path as osp
 
 if __name__ == "__main__":
     print("bar")
-    pp({"john": "osp("})
+    pp({"john": "doe"})
     # urllib.parse.urlencode({"fizz": "buzz"})
     logging.warning("func")
     munc()

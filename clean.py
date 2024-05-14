@@ -5,12 +5,8 @@ import re
 from dataclasses import dataclass
 from enum import auto, Enum
 
-__version__ = "0.0.1"
 
-# TODO: not implemented
-#  -> multi_imports on separate lines inside parentheses
-#  -> imports for decorators (e.g. @dataclass)
-#  -> imports for class inheritance (e.g. class Foo(Enum))
+__version__ = "0.0.1"
 
 
 # ### constants ###
@@ -18,7 +14,7 @@ __version__ = "0.0.1"
 class Patterns:
     LOG_FORMAT = "%(levelname)s: %(message)s"
     TEMP = "{file}.swap"
-    IMPORT = r" {imported}[.(]"
+    IMPORT = r"\b\@?{imported}[.(),\n]"
     DOT = r"^[.][\w-]+$"
     DUNDER = r"^__[\w-]+__$"
 
@@ -29,7 +25,7 @@ class Messages:
     CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports:"
     CLEANUP_SUCCESSFUL = "Cleaned up {file}"
     NON_EXISTENT_PATH = "{path} doesn't exist"
-    SKIP_PATH = "{path} is in skip list"
+    SKIP_PATH = "Skipping {path}"
     NOT_PY_FILE = "{path} is not a python file"
 
 
@@ -124,23 +120,22 @@ class Cleaner:
         self.import_lines = []
 
     # ### main logic ###
-    def process_paths(self, path_list, dir_level):
+    def process_paths(self, path_list, dir_level, verbose):
         for path in path_list:
             if path != CWD:
                 path = os.path.join(dir_level, path)
 
             if os.path.exists(path) is False:
                 # TODO: should we use log.warning?
-                #  add verbose flag to use?
                 self.logger.warning(Messages.NON_EXISTENT_PATH.format(path=path))
                 continue
             if self._should_skip_path(os.path.basename(path)):
-                # TODO: add --verbose to log skipping ?
-                self.logger.warning(Messages.SKIP_PATH.format(path=path))
+                if verbose:
+                    self.logger.warning(Messages.SKIP_PATH.format(path=path))
                 continue
             if os.path.isdir(path):
                 nested_paths = os.listdir(path)
-                self.process_paths(nested_paths, dir_level=path)
+                self.process_paths(nested_paths, dir_level=path, verbose=verbose)
                 continue
             if path.endswith(PY_EXT) is False:
                 self.logger.warning(Messages.NOT_PY_FILE.format(path=path))
@@ -290,20 +285,22 @@ class Cleaner:
 
 
 def main():
-    path_list, skip_list = read_input()
-    Cleaner(skip_list).process_paths(path_list, dir_level=CWD)
+    path_list, skip_list, verbose = read_input()
+    Cleaner(skip_list).process_paths(path_list, dir_level=CWD, verbose=verbose)
 
 
 def read_input():
     parser = argparse.ArgumentParser()
     parser.add_argument("target", nargs="+")
     parser.add_argument("--skip", nargs="*", default=())
+    parser.add_argument("--verbose", action="store_true")
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
 
     args = parser.parse_args()
     path_list = args.target
     skip_list = args.skip
-    return path_list, skip_list
+    verbose = args.verbose
+    return path_list, skip_list, verbose
 
 
 if __name__ == "__main__":
