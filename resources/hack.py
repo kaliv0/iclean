@@ -6,3 +6,7 @@ def skunk():
 
 def trunk():
     pass
+
+
+class Fizz:
+    pass

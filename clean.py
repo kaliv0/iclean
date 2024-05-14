@@ -3,7 +3,8 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from enum import auto, Enum
+from enum import Enum, auto
+from typing import TextIO
 
 
 __version__ = "0.0.1"
@@ -95,7 +96,7 @@ class ImportLine:
 
 class Cleaner:
     # ### settings ###
-    def __init__(self, skip_list):
+    def __init__(self, skip_list: list[str]) -> None:
         self.logger = self._get_logger()
         self.file = None
         self.temp_file = None
@@ -105,12 +106,12 @@ class Cleaner:
         self.skip_list = DEFAULT_SKIP_LIST.union(skip_list)
 
     @staticmethod
-    def _get_logger():
+    def _get_logger() -> logging.Logger:
         logger = logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO, format=Patterns.LOG_FORMAT)
         return logger
 
-    def set_up(self, file):
+    def set_up(self, file: str) -> None:
         self.file = file
         self.temp_file = Patterns.TEMP.format(file=file)
         # load file in memory
@@ -120,13 +121,12 @@ class Cleaner:
         self.import_lines = []
 
     # ### main logic ###
-    def process_paths(self, path_list, dir_level, verbose):
+    def process_paths(self, path_list: list[str], dir_level: str, verbose: bool) -> None:
         for path in path_list:
             if path != CWD:
                 path = os.path.join(dir_level, path)
 
             if os.path.exists(path) is False:
-                # TODO: should we use log.warning?
                 self.logger.warning(Messages.NON_EXISTENT_PATH.format(path=path))
                 continue
             if self._should_skip_path(os.path.basename(path)):
@@ -144,7 +144,7 @@ class Cleaner:
             self.set_up(path)
             self.clean_imports()
 
-    def _should_skip_path(self, path):
+    def _should_skip_path(self, path: str) -> re.Match[str] | bool:
         return (
             path in self.skip_list
             or re.search(Patterns.DOT, path)
@@ -153,7 +153,7 @@ class Cleaner:
             or path.endswith(".bak")
         )
 
-    def clean_imports(self):
+    def clean_imports(self) -> None:
         try:
             self.read_imports()
             self.read_rest_of_file()
@@ -168,8 +168,8 @@ class Cleaner:
             self.logger.info(Messages.CLEANUP_SUCCESSFUL.format(file=self.file))
 
     # ### parse file ###
-    def read_imports(self):
-        for line_num, line in enumerate(self.lines):
+    def read_imports(self) -> None:
+        for line in self.lines:
             self.line_num += 1
             if line.startswith(NEW_LINE):
                 self._handle_non_analysed_imports(line, ImportLineType.NEW_LINE)
@@ -187,12 +187,17 @@ class Cleaner:
             else:
                 break
 
-    def _handle_non_analysed_imports(self, line_literal, line_type):
+    def _handle_non_analysed_imports(self, line_literal: str, line_type: ImportLineType) -> None:
         self.import_lines.append(
-            ImportLine(literal=line_literal, import_data=[], import_list=[], type=line_type)
+            ImportLine(
+                literal=line_literal,
+                import_data=[],
+                import_list=[],
+                type=line_type,
+            )
         )
 
-    def _handle_aliases(self, line_literal, imported):
+    def _handle_aliases(self, line_literal: str, imported: str) -> None:
         import_name = imported.strip()
         import_data = ImportData(name=import_name, count=0)
         import_line = ImportLine(
@@ -203,7 +208,7 @@ class Cleaner:
         )
         self.import_lines.append(import_line)
 
-    def _handle_regular_imports(self, line_literal, imported):
+    def _handle_regular_imports(self, line_literal: str, imported: str) -> None:
         import_names = imported.strip()
         if import_names.startswith(WILDCARD):
             raise ValueError(Messages.BAD_PRACTICE_ERROR)
@@ -221,7 +226,7 @@ class Cleaner:
             import_line.import_data.append(import_data)
         self.import_lines.append(import_line)
 
-    def read_rest_of_file(self):
+    def read_rest_of_file(self) -> None:
         for line in self.lines[self.line_num :]:
             if line.strip().startswith(COMMENT):
                 continue
@@ -233,12 +238,12 @@ class Cleaner:
                         imported.count += 1
 
     # ### clean up file ###
-    def write_to_temp_file(self):
+    def write_to_temp_file(self) -> None:
         with open(self.temp_file, "w") as f:
             self.write_imports(f)
             self.write_rest_of_file(f)
 
-    def write_imports(self, file_writer):
+    def write_imports(self, file_writer: TextIO) -> None:
         lines_count = 0
         for line in self.import_lines:
             should_process_line = self._build_multiple_import_list(line)
@@ -250,7 +255,7 @@ class Cleaner:
             file_writer.write("\n\n")
 
     @staticmethod
-    def _build_multiple_import_list(line):
+    def _build_multiple_import_list(line: ImportLine) -> bool:
         should_process_line = True
         for data in line.import_data:
             if data.count == 0 and line.type != ImportLineType.MULTI_IMPORT:
@@ -260,7 +265,7 @@ class Cleaner:
                 line.import_list.append(data.name)
         return should_process_line
 
-    def _write_import_line(self, file_writer, line):
+    def _write_import_line(self, file_writer: TextIO, line: ImportLine) -> int:
         if line.import_list or self._should_write_import_line(line):
             if line.type in (ImportLineType.ALIAS, ImportLineType.COMMENT):
                 file_writer.write(line.literal)
@@ -270,26 +275,26 @@ class Cleaner:
         return 0
 
     @staticmethod
-    def _should_write_import_line(line):
+    def _should_write_import_line(line: ImportLine) -> bool:
         return line.type == ImportLineType.COMMENT or not (
             line.type == ImportLineType.MULTI_IMPORT or line.type == ImportLineType.NEW_LINE
         )
 
     @staticmethod
-    def _prepare_import_line(line_literal, import_list):
+    def _prepare_import_line(line_literal: str, import_list: list[str]) -> str:
         return line_literal + f"{DELIMITER} ".join(import_list) + NEW_LINE
 
-    def write_rest_of_file(self, file_writer):
+    def write_rest_of_file(self, file_writer: TextIO) -> None:
         for line in self.lines[self.line_num :]:
             file_writer.write(line)
 
 
-def main():
+def main() -> None:
     path_list, skip_list, verbose = read_input()
     Cleaner(skip_list).process_paths(path_list, dir_level=CWD, verbose=verbose)
 
 
-def read_input():
+def read_input() -> tuple[list[str], list[str], bool]:
     parser = argparse.ArgumentParser()
     parser.add_argument("target", nargs="+")
     parser.add_argument("--skip", nargs="*", default=())
