@@ -296,9 +296,13 @@ def main() -> None:
 
 def read_input() -> tuple[list[str], list[str], bool]:
     parser = argparse.ArgumentParser()
-    parser.add_argument("target", nargs="+")
-    parser.add_argument("--skip", nargs="*", default=())
-    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "target", nargs="+", help="path or list of paths to file or directory to parse"
+    )
+    parser.add_argument("--skip", nargs="*", default=(), help="target path or paths to skip")
+    parser.add_argument(
+        "--verbose", action="store_true", help="verbose output that includes skipping paths"
+    )
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
 
     args = parser.parse_args()
