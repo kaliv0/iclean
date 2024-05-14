@@ -3,25 +3,37 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from enum import Enum, auto
-from pprint import pprint
-
+from enum import auto, Enum
 
 __version__ = "0.0.1"
 
+# TODO: not implemented
+#  -> multi_imports on separate lines inside parentheses
+#  -> imports for decorators (e.g. @dataclass)
+#  -> imports for class inheritance (e.g. class Foo(Enum))
+
 
 # ### constants ###
-LOG_FORMAT = "%(levelname)s: %(message)s"
-IMPORT_PATTERN = r" {imported}[.(]"
-TEMP_TEMPLATE = "{file}.swap"
+@dataclass(frozen=True)
+class Patterns:
+    LOG_FORMAT = "%(levelname)s: %(message)s"
+    TEMP = "{file}.swap"
+    IMPORT = r" {imported}[.(]"
+    DOT = r"^[.][\w-]+$"
+    DUNDER = r"^__[\w-]+__$"
 
-BAD_PRACTICE_ERROR = "Bad practice using import *"
-CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports:"
-CLEANUP_SUCCESSFUL = "Cleaned up {file}"
-NON_EXISTENT_PATH = "{path} doesn't exist"
-SKIP_PATH = "{path} is in skip list"
-NOT_PY_FILE = "{path} is not a python file"
 
+@dataclass(frozen=True)
+class Messages:
+    BAD_PRACTICE_ERROR = "Bad practice using import *"
+    CLEANUP_FAILED_ERROR = "Something went wrong while cleaning up unused imports:"
+    CLEANUP_SUCCESSFUL = "Cleaned up {file}"
+    NON_EXISTENT_PATH = "{path} doesn't exist"
+    SKIP_PATH = "{path} is in skip list"
+    NOT_PY_FILE = "{path} is not a python file"
+
+
+# TODO: package inside a dataclass?
 COMMENT = "#"
 WILDCARD = "*"
 ALIAS = " as "
@@ -99,12 +111,12 @@ class Cleaner:
     @staticmethod
     def _get_logger():
         logger = logging.getLogger(__name__)
-        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+        logging.basicConfig(level=logging.INFO, format=Patterns.LOG_FORMAT)
         return logger
 
     def set_up(self, file):
         self.file = file
-        self.temp_file = TEMP_TEMPLATE.format(file=file)
+        self.temp_file = Patterns.TEMP.format(file=file)
         # load file in memory
         with open(file, "r") as f:
             self.lines = f.readlines()
@@ -113,54 +125,52 @@ class Cleaner:
 
     # ### main logic ###
     def process_paths(self, path_list, dir_level):
-        print(self.skip_list)
         for path in path_list:
             if path != CWD:
                 path = os.path.join(dir_level, path)
 
             if os.path.exists(path) is False:
-                self.logger.info(NON_EXISTENT_PATH.format(path=path))
+                # TODO: should we use log.warning?
+                #  add verbose flag to use?
+                self.logger.warning(Messages.NON_EXISTENT_PATH.format(path=path))
                 continue
             if self._should_skip_path(os.path.basename(path)):
-                # TODO: log only in user-defined skip list or not at all??
-                self.logger.info(SKIP_PATH.format(path=path))
+                # TODO: add --verbose to log skipping ?
+                self.logger.warning(Messages.SKIP_PATH.format(path=path))
                 continue
             if os.path.isdir(path):
-                print(path)
                 nested_paths = os.listdir(path)
                 self.process_paths(nested_paths, dir_level=path)
                 continue
             if path.endswith(PY_EXT) is False:
-                self.logger.info(NOT_PY_FILE.format(path=path))
+                self.logger.warning(Messages.NOT_PY_FILE.format(path=path))
                 continue
 
             self.set_up(path)
             self.clean_imports()
 
     def _should_skip_path(self, path):
-        # f_pattern = r"[\w-]+"
         return (
             path in self.skip_list
-            or re.search(rf"^[.][\w-]+$", path)
-            or re.search(rf"^__[\w-]+__$", path)
+            or re.search(Patterns.DOT, path)
+            or re.search(Patterns.DUNDER, path)
             or path.endswith(".egg-info")
             or path.endswith(".bak")
         )
 
     def clean_imports(self):
-        # try:
-        self.read_imports()
-        self.read_rest_of_file()
-        pprint(self.import_lines)
-        self.write_to_temp_file()
-        # except (ValueError, Exception) as e:
-        #     self.logger.error(CLEANUP_FAILED_ERROR)
-        #     self.logger.error(e)
-        #     if os.path.exists(self.temp_file):
-        #         os.remove(self.temp_file)
-        # else:
-        #     os.replace(self.temp_file, self.file)
-        #     self.logger.info(CLEANUP_SUCCESSFUL.format(file=self.file))
+        try:
+            self.read_imports()
+            self.read_rest_of_file()
+            self.write_to_temp_file()
+        except (ValueError, Exception) as e:
+            self.logger.error(Messages.CLEANUP_FAILED_ERROR)
+            self.logger.error(e)
+            if os.path.exists(self.temp_file):
+                os.remove(self.temp_file)
+        else:
+            os.replace(self.temp_file, self.file)
+            self.logger.info(Messages.CLEANUP_SUCCESSFUL.format(file=self.file))
 
     # ### parse file ###
     def read_imports(self):
@@ -173,13 +183,11 @@ class Cleaner:
             elif (idx := line.find(ALIAS)) >= 0:
                 import_boundary = idx + ALIAS_LEN
                 imported = line[import_boundary:]
-                print(f"{line=}, {imported=}")
                 self._handle_aliases(line, imported)
             elif (idx := line.find(IMPORT)) >= 0:
                 import_boundary = idx + IMPORT_LEN
                 header = line[:import_boundary]
                 imported = line[import_boundary:]
-                print(f"{header=}, {imported=}")
                 self._handle_regular_imports(header, imported)
             else:
                 break
@@ -203,7 +211,7 @@ class Cleaner:
     def _handle_regular_imports(self, line_literal, imported):
         import_names = imported.strip()
         if import_names.startswith(WILDCARD):
-            raise ValueError(BAD_PRACTICE_ERROR)
+            raise ValueError(Messages.BAD_PRACTICE_ERROR)
 
         import_list = import_names.split(DELIMITER)
         import_line = ImportLine(
@@ -225,7 +233,7 @@ class Cleaner:
 
             for imp_line in self.import_lines:
                 for imported in imp_line.import_data:
-                    if re.search(IMPORT_PATTERN.format(imported=imported.name), line):
+                    if re.search(Patterns.IMPORT.format(imported=imported.name), line):
                         # track import usage
                         imported.count += 1
 
@@ -238,10 +246,9 @@ class Cleaner:
     def write_imports(self, file_writer):
         lines_count = 0
         for line in self.import_lines:
-            should_write = self._build_multiple_import_list(line)
-            if should_write:
-                self._write_import_line(file_writer, line)
-                lines_count += 1
+            should_process_line = self._build_multiple_import_list(line)
+            if should_process_line:
+                lines_count += self._write_import_line(file_writer, line)
 
         # write emtpy lines after import block if present
         if lines_count > 0:
@@ -249,14 +256,14 @@ class Cleaner:
 
     @staticmethod
     def _build_multiple_import_list(line):
-        should_write = True
+        should_process_line = True
         for data in line.import_data:
             if data.count == 0 and line.type != ImportLineType.MULTI_IMPORT:
-                should_write = False
+                should_process_line = False
                 break
             elif data.count > 0:
                 line.import_list.append(data.name)
-        return should_write
+        return should_process_line
 
     def _write_import_line(self, file_writer, line):
         if line.import_list or self._should_write_import_line(line):
@@ -264,12 +271,13 @@ class Cleaner:
                 file_writer.write(line.literal)
             else:
                 file_writer.write(self._prepare_import_line(line.literal, line.import_list))
+            return 1  # returns number of written lines
+        return 0
 
     @staticmethod
     def _should_write_import_line(line):
-        return line.type == ImportLineType.MULTI_IMPORT or line.type not in (
-            ImportLineType.MULTI_IMPORT,
-            ImportLineType.NEW_LINE,
+        return line.type == ImportLineType.COMMENT or not (
+            line.type == ImportLineType.MULTI_IMPORT or line.type == ImportLineType.NEW_LINE
         )
 
     @staticmethod
