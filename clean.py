@@ -30,16 +30,20 @@ class Messages:
     NOT_PY_FILE = "{path} is not a python file"
 
 
-COMMENT = "#"
-WILDCARD = "*"
-ALIAS = " as "
-IMPORT = "import "
-IMPORT_LEN = len(IMPORT)
-ALIAS_LEN = len(ALIAS)
-NEW_LINE = "\n"
-DELIMITER = ","
-CWD = "."
-PY_EXT = ".py"
+@dataclass(frozen=True)
+class Tokens:
+    COMMENT = "#"
+    WILDCARD = "*"
+    ALIAS = " as "
+    IMPORT = "import "
+    NEW_LINE = "\n"
+    DELIMITER = ","
+    CWD = "."
+    PY_EXT = ".py"
+
+
+IMPORT_LEN = len(Tokens.IMPORT)
+ALIAS_LEN = len(Tokens.ALIAS)
 
 # based on .gitignore
 DEFAULT_SKIP_LIST = {
@@ -122,7 +126,7 @@ class Cleaner:
     # ### main logic ###
     def process_paths(self, path_list: list[str], dir_level: str, verbose: bool) -> None:
         for path in path_list:
-            if path != CWD:
+            if path != Tokens.CWD:
                 path = os.path.join(dir_level, path)
 
             if os.path.exists(path) is False:
@@ -136,7 +140,7 @@ class Cleaner:
                 nested_paths = os.listdir(path)
                 self.process_paths(nested_paths, dir_level=path, verbose=verbose)
                 continue
-            if path.endswith(PY_EXT) is False:
+            if path.endswith(Tokens.PY_EXT) is False:
                 self.logger.warning(Messages.NOT_PY_FILE.format(path=path))
                 continue
 
@@ -170,15 +174,15 @@ class Cleaner:
     def read_imports(self) -> None:
         for line in self.lines:
             self.line_num += 1
-            if line.startswith(NEW_LINE):
+            if line.startswith(Tokens.NEW_LINE):
                 self._handle_non_analysed_imports(line, ImportLineType.NEW_LINE)
-            elif line.startswith(COMMENT):
+            elif line.startswith(Tokens.COMMENT):
                 self._handle_non_analysed_imports(line, ImportLineType.COMMENT)
-            elif (idx := line.find(ALIAS)) >= 0:
+            elif (idx := line.find(Tokens.ALIAS)) >= 0:
                 import_boundary = idx + ALIAS_LEN
                 imported = line[import_boundary:]
                 self._handle_aliases(line, imported)
-            elif (idx := line.find(IMPORT)) >= 0:
+            elif (idx := line.find(Tokens.IMPORT)) >= 0:
                 import_boundary = idx + IMPORT_LEN
                 header = line[:import_boundary]
                 imported = line[import_boundary:]
@@ -209,10 +213,10 @@ class Cleaner:
 
     def _handle_regular_imports(self, line_literal: str, imported: str) -> None:
         import_names = imported.strip()
-        if import_names.startswith(WILDCARD):
+        if import_names.startswith(Tokens.WILDCARD):
             raise ValueError(Messages.BAD_PRACTICE_ERROR)
 
-        import_list = import_names.split(DELIMITER)
+        import_list = import_names.split(Tokens.DELIMITER)
         import_line = ImportLine(
             literal=line_literal,
             import_data=[],
@@ -227,7 +231,7 @@ class Cleaner:
 
     def read_rest_of_file(self) -> None:
         for line in self.lines[self.line_num :]:
-            if line.strip().startswith(COMMENT):
+            if line.strip().startswith(Tokens.COMMENT):
                 continue
 
             for imp_line in self.import_lines:
@@ -281,7 +285,7 @@ class Cleaner:
 
     @staticmethod
     def _prepare_import_line(line_literal: str, import_list: list[str]) -> str:
-        return line_literal + f"{DELIMITER} ".join(import_list) + NEW_LINE
+        return line_literal + f"{Tokens.DELIMITER} ".join(import_list) + Tokens.NEW_LINE
 
     def write_rest_of_file(self, file_writer: TextIO) -> None:
         for line in self.lines[self.line_num :]:
@@ -290,7 +294,7 @@ class Cleaner:
 
 def main() -> None:
     path_list, skip_list, verbose = read_input()
-    Cleaner(skip_list).process_paths(path_list, dir_level=CWD, verbose=verbose)
+    Cleaner(skip_list).process_paths(path_list, dir_level=Tokens.CWD, verbose=verbose)
 
 
 def read_input() -> tuple[list[str], list[str], bool]:
