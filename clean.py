@@ -7,7 +7,7 @@ from enum import Enum, auto
 from typing import TextIO
 
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 
 # ### constants ###
