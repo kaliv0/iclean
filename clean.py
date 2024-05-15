@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TextIO
 
-
 __version__ = "0.0.2"
 
 
@@ -172,8 +171,10 @@ class Cleaner:
 
     # ### parse file ###
     def read_imports(self) -> None:
-        for line in self.lines:
-            self.line_num += 1
+        i = -1
+        while i < len(self.lines):
+            i += 1
+            line = self.lines[i]
             if line.startswith(Tokens.NEW_LINE):
                 self._handle_non_analysed_imports(line, ImportLineType.NEW_LINE)
             elif line.startswith(Tokens.COMMENT):
@@ -182,12 +183,35 @@ class Cleaner:
                 import_boundary = idx + ALIAS_LEN
                 imported = line[import_boundary:]
                 self._handle_aliases(line, imported)
+            elif (idx := line.find("(\n")) >= 0:
+                import_boundary = idx
+                header = line[:import_boundary]
+                imported = []
+                i += 1
+                while (nline := self.lines[i]) != ")\n":
+                    imported.append(nline.strip().rstrip(","))
+                    i += 1
+                # duplicated in _handle_regular_imports
+                import_line = ImportLine(
+                    literal=header,
+                    import_data=[],
+                    import_list=[],
+                    type=(
+                        ImportLineType.MULTI_IMPORT if len(imported) > 1 else ImportLineType.REGULAR
+                    ),
+                )
+
+                for import_literal in imported:
+                    import_data = ImportData(name=import_literal.strip(), count=0)
+                    import_line.import_data.append(import_data)
+                self.import_lines.append(import_line)
             elif (idx := line.find(Tokens.IMPORT)) >= 0:
                 import_boundary = idx + IMPORT_LEN
                 header = line[:import_boundary]
                 imported = line[import_boundary:]
                 self._handle_regular_imports(header, imported)
             else:
+                self.line_num = i
                 break
 
     def _handle_non_analysed_imports(self, line_literal: str, line_type: ImportLineType) -> None:
