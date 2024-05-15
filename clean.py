@@ -203,7 +203,7 @@ class Cleaner:
         imported = []
         i += 1
         while (line := self.lines[i]) != Tokens.RIGHT_PAREN:
-            imported.append(line.strip().rstrip(","))  # FIXME
+            imported.append(line.strip().rstrip(","))
             i += 1
         return i, imported
 
