@@ -1,13 +1,13 @@
+import os
+import urllib.parse
+from os import scandir
+from os import path as osp
+
 from bar import (
     func,
     munc,
     Fizz,
 )
-
-import os
-import urllib.parse
-from os import scandir
-from os import path as osp
 
 from dataclasses import dataclass
 import logging

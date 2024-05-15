@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TextIO
 
+
 __version__ = "0.0.2"
 
 
@@ -36,6 +37,8 @@ class Tokens:
     ALIAS = " as "
     IMPORT = "import "
     NEW_LINE = "\n"
+    LEFT_PAREN = "(\n"
+    RIGHT_PAREN = ")\n"
     DELIMITER = ","
     CWD = "."
     PY_EXT = ".py"
@@ -183,28 +186,10 @@ class Cleaner:
                 import_boundary = idx + ALIAS_LEN
                 imported = line[import_boundary:]
                 self._handle_aliases(line, imported)
-            elif (idx := line.find("(\n")) >= 0:
-                import_boundary = idx
-                header = line[:import_boundary]
-                imported = []
-                i += 1
-                while (nline := self.lines[i]) != ")\n":
-                    imported.append(nline.strip().rstrip(","))
-                    i += 1
-                # duplicated in _handle_regular_imports
-                import_line = ImportLine(
-                    literal=header,
-                    import_data=[],
-                    import_list=[],
-                    type=(
-                        ImportLineType.MULTI_IMPORT if len(imported) > 1 else ImportLineType.REGULAR
-                    ),
-                )
-
-                for import_literal in imported:
-                    import_data = ImportData(name=import_literal.strip(), count=0)
-                    import_line.import_data.append(import_data)
-                self.import_lines.append(import_line)
+            elif (idx := line.find(Tokens.LEFT_PAREN)) >= 0:
+                header = line[:idx]
+                i, imported = self._get_multiline_imports(i)
+                self._handle_import_line(header, imported)
             elif (idx := line.find(Tokens.IMPORT)) >= 0:
                 import_boundary = idx + IMPORT_LEN
                 header = line[:import_boundary]
@@ -213,6 +198,14 @@ class Cleaner:
             else:
                 self.line_num = i
                 break
+
+    def _get_multiline_imports(self, i: int) -> tuple[int, list[str]]:
+        imported = []
+        i += 1
+        while (line := self.lines[i]) != Tokens.RIGHT_PAREN:
+            imported.append(line.strip().rstrip(","))  # FIXME
+            i += 1
+        return i, imported
 
     def _handle_non_analysed_imports(self, line_literal: str, line_type: ImportLineType) -> None:
         self.import_lines.append(
@@ -241,13 +234,15 @@ class Cleaner:
             raise ValueError(Messages.BAD_PRACTICE_ERROR)
 
         import_list = import_names.split(Tokens.DELIMITER)
+        self._handle_import_line(line_literal, import_list)
+
+    def _handle_import_line(self, line_literal: str, import_list: list[str]) -> None:
         import_line = ImportLine(
             literal=line_literal,
             import_data=[],
             import_list=[],
             type=ImportLineType.MULTI_IMPORT if len(import_list) > 1 else ImportLineType.REGULAR,
         )
-
         for import_literal in import_list:
             import_data = ImportData(name=import_literal.strip(), count=0)
             import_line.import_data.append(import_data)
