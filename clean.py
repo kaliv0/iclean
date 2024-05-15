@@ -37,6 +37,8 @@ class Tokens:
     ALIAS = " as "
     IMPORT = "import "
     NEW_LINE = "\n"
+    LEFT_PAREN = "(\n"
+    RIGHT_PAREN = ")\n"
     DELIMITER = ","
     CWD = "."
     PY_EXT = ".py"
@@ -172,8 +174,10 @@ class Cleaner:
 
     # ### parse file ###
     def read_imports(self) -> None:
-        for line in self.lines:
-            self.line_num += 1
+        i = -1
+        while i < len(self.lines):
+            i += 1
+            line = self.lines[i]
             if line.startswith(Tokens.NEW_LINE):
                 self._handle_non_analysed_imports(line, ImportLineType.NEW_LINE)
             elif line.startswith(Tokens.COMMENT):
@@ -182,13 +186,26 @@ class Cleaner:
                 import_boundary = idx + ALIAS_LEN
                 imported = line[import_boundary:]
                 self._handle_aliases(line, imported)
+            elif (idx := line.find(Tokens.LEFT_PAREN)) >= 0:
+                header = line[:idx]
+                i, imported = self._get_multiline_imports(i)
+                self._handle_import_line(header, imported)
             elif (idx := line.find(Tokens.IMPORT)) >= 0:
                 import_boundary = idx + IMPORT_LEN
                 header = line[:import_boundary]
                 imported = line[import_boundary:]
                 self._handle_regular_imports(header, imported)
             else:
+                self.line_num = i
                 break
+
+    def _get_multiline_imports(self, i: int) -> tuple[int, list[str]]:
+        imported = []
+        i += 1
+        while (line := self.lines[i]) != Tokens.RIGHT_PAREN:
+            imported.append(line.strip().rstrip(","))  # FIXME
+            i += 1
+        return i, imported
 
     def _handle_non_analysed_imports(self, line_literal: str, line_type: ImportLineType) -> None:
         self.import_lines.append(
@@ -217,13 +234,15 @@ class Cleaner:
             raise ValueError(Messages.BAD_PRACTICE_ERROR)
 
         import_list = import_names.split(Tokens.DELIMITER)
+        self._handle_import_line(line_literal, import_list)
+
+    def _handle_import_line(self, line_literal: str, import_list: list[str]) -> None:
         import_line = ImportLine(
             literal=line_literal,
             import_data=[],
             import_list=[],
             type=ImportLineType.MULTI_IMPORT if len(import_list) > 1 else ImportLineType.REGULAR,
         )
-
         for import_literal in import_list:
             import_data = ImportData(name=import_literal.strip(), count=0)
             import_line.import_data.append(import_data)
