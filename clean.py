@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TextIO
 
-
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 
 # ### constants ###
@@ -126,7 +125,9 @@ class Cleaner:
         self.import_lines = []
 
     # ### main logic ###
-    def process_paths(self, path_list: list[str], dir_level: str, verbose: bool) -> None:
+    def process_paths(
+        self, path_list: list[str], dir_level: str, verbose: bool
+    ) -> None:
         for path in path_list:
             if path != Tokens.CWD:
                 path = os.path.join(dir_level, path)
@@ -207,7 +208,9 @@ class Cleaner:
             i += 1
         return i, imported
 
-    def _handle_non_analysed_imports(self, line_literal: str, line_type: ImportLineType) -> None:
+    def _handle_non_analysed_imports(
+        self, line_literal: str, line_type: ImportLineType
+    ) -> None:
         self.import_lines.append(
             ImportLine(
                 literal=line_literal,
@@ -241,7 +244,11 @@ class Cleaner:
             literal=line_literal,
             import_data=[],
             import_list=[],
-            type=ImportLineType.MULTI_IMPORT if len(import_list) > 1 else ImportLineType.REGULAR,
+            type=(
+                ImportLineType.MULTI_IMPORT
+                if len(import_list) > 1
+                else ImportLineType.REGULAR
+            ),
         )
         for import_literal in import_list:
             import_data = ImportData(name=import_literal.strip(), count=0)
@@ -292,14 +299,17 @@ class Cleaner:
             if line.type in (ImportLineType.ALIAS, ImportLineType.COMMENT):
                 file_writer.write(line.literal)
             else:
-                file_writer.write(self._prepare_import_line(line.literal, line.import_list))
+                file_writer.write(
+                    self._prepare_import_line(line.literal, line.import_list)
+                )
             return 1  # returns number of written lines
         return 0
 
     @staticmethod
     def _should_write_import_line(line: ImportLine) -> bool:
         return line.type == ImportLineType.COMMENT or not (
-            line.type == ImportLineType.MULTI_IMPORT or line.type == ImportLineType.NEW_LINE
+            line.type == ImportLineType.MULTI_IMPORT
+            or line.type == ImportLineType.NEW_LINE
         )
 
     @staticmethod
@@ -321,11 +331,17 @@ def read_input() -> tuple[list[str], list[str], bool]:
     parser.add_argument(
         "target", nargs="+", help="path or list of paths to file or directory to parse"
     )
-    parser.add_argument("--skip", nargs="*", default=(), help="target path or paths to skip")
     parser.add_argument(
-        "--verbose", action="store_true", help="verbose output that includes skipping paths"
+        "--skip", nargs="*", default=(), help="target path or paths to skip"
     )
-    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="verbose output that includes skipping paths",
+    )
+    parser.add_argument(
+        "-v", "--version", action="version", version=f"%(prog)s {__version__}"
+    )
 
     args = parser.parse_args()
     path_list = args.target

@@ -4,7 +4,7 @@ requires = ["setuptools>=68.2.0", "wheel"]
 
 [project]
 authors = [{name = "kaliv0"}]
-description = "Import cleaner"
+description = "Unused imports cleaner"
 name = "iclean"
 readme = "README.md"
 license = {file = "LICENSE"}
