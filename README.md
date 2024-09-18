@@ -1,6 +1,7 @@
 # ICLEAN
 
 [![PyPI](https://img.shields.io/pypi/v/iclean.svg)](https://pypi.org/project/iclean/)
+[![Downloads](https://static.pepy.tech/badge/iclean)](https://pepy.tech/project/iclean)
 
 Python CLI tool for cleaning up unused imports <br>
 (either user defined, coming from the standard or third party library)
